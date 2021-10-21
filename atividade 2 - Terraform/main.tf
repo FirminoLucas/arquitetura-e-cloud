@@ -16,12 +16,13 @@ provider "azurerm" {
   
     }
 }
-
+#Criar o grupo de recursos (requisito para a criação da VM)
 resource "azurerm_resource_group" "atividade2firmino" {
   name     = "atividade2"
   location = "West US"
 }
 
+#criar a rede virtual
 resource "azurerm_virtual_network" "atividade2network" {
   name                = "virtualNetwork1"
   #onde ela fica
@@ -33,6 +34,7 @@ resource "azurerm_virtual_network" "atividade2network" {
 
 
 }
+#criar a sub rede
 resource "azurerm_subnet" "atividade2subnetwork" {
   name                 = "example-subnet"
   resource_group_name  = azurerm_resource_group.atividade2firmino.name
@@ -40,6 +42,7 @@ resource "azurerm_subnet" "atividade2subnetwork" {
   address_prefixes     = ["10.0.1.0/24"]
   
 }
+#criar o ip publico para o vm
 resource "azurerm_public_ip" "atividade2publicip" {
   name                = "acceptanceTestPublicIp1"
   resource_group_name = azurerm_resource_group.atividade2firmino.name
@@ -50,7 +53,20 @@ resource "azurerm_public_ip" "atividade2publicip" {
     environment = "Production"
   }
 }
+#Criar interface de rede
+resource "azurerm_network_interface" "atividade2netinter" {
+  name                = "example-nic"
+  location            = azurerm_resource_group.atividade2firmino.location
+  resource_group_name = azurerm_resource_group.atividade2firmino.name
 
+  ip_configuration {
+    name                          = "internal" #pode ser qualquer coisa
+    subnet_id                     = azurerm_subnet.atividade2subnetwork.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id = azurerm_public_ip.atividade2publicip.id
+  }
+}
+#criar o firewall
 resource "azurerm_network_security_group" "atividade2security" {
   name                = "acceptanceTestSecurityGroup1"
   location            = azurerm_resource_group.atividade2firmino.location
@@ -63,7 +79,7 @@ resource "azurerm_network_security_group" "atividade2security" {
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_range     = "3306" #apenas a porta 3306
+    destination_port_range     = "22" #apenas a porta 22
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
@@ -72,17 +88,19 @@ resource "azurerm_network_security_group" "atividade2security" {
     environment = "Production"
   }
 }
-resource "azurerm_network_interface" "atividade2netinter" {
-  name                = "example-nic"
-  location            = azurerm_resource_group.atividade2firmino.location
-  resource_group_name = azurerm_resource_group.atividade2firmino.name
-
-  ip_configuration {
-    name                          = "internal" #pode ser qualquer coisa
-    subnet_id                     = azurerm_subnet.atividade2subnetwork.id
-    private_ip_address_allocation = "Dynamic"
-    public_ip_address_id = azurerm_public_ip.atividade2publicip.id
-  }
+#criar regra do firewall para o MySql
+resource "azurerm_network_security_rule" "atividade2security" {
+  name                        = "mysql"
+  priority                    = 101
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "TCP"
+  source_port_range           = "*"
+  destination_port_range      = "3306" #usar a porta 3306 para o sql
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.atividade2firmino.name
+  network_security_group_name = azurerm_network_security_group.atividade2security.name
 }
 
 ########### criar a maquina virtual #################
@@ -118,26 +136,50 @@ resource "azurerm_virtual_machine" "main" {
     environment = "staging"
   }
 }
-  resource "azurerm_mysql_server" "atividade2sql" {
-  name                = "mysqlserver"
-  location            = azurerm_resource_group.atividade2firmino.location
-  resource_group_name = azurerm_resource_group.atividade2firmino.name
+#instalar o mysql na vm#
+ resource "null_resource" "mysql" {
+   triggers = {
+      order = azurerm_virtual_machine.main.id
+    }
 
-  administrator_login          = "mysqladminun"
-  administrator_login_password = "H@Sh1CoR3!"
-
-  sku_name   = "B_Gen5_2"
-  storage_mb = 5120
-  version    = "5.7"
-
-  auto_grow_enabled                 = true
-  backup_retention_days             = 7
-  geo_redundant_backup_enabled      = false
-  infrastructure_encryption_enabled = false
-  public_network_access_enabled     = true
-  ssl_enforcement_enabled           = true
-  ssl_minimal_tls_version_enforced  = "TLS1_2"
+  provisioner "remote-exec" {
+    connection {
+        type="ssh"
+        user="testadmin"
+        password="Password1234!"
+        host = azurerm_public_ip.atividade2publicip.ip_address
   }
+    #comando para instalar via 'terminal'da vm
+    inline = [
+      "sudo apt update",
+      "sudo apt-get install -y mysql-server ",
+      "sudo service mysql start"
+    ]
+  }
+}
+
+  ########## Instancia MySql PaaS #########
+  
+  #resource "azurerm_mysql_server" "atividade2sql" {
+  #name                = "atividade2mysqlserverfirmino"
+  #location            = azurerm_resource_group.atividade2firmino.location
+  #resource_group_name = azurerm_resource_group.atividade2firmino.name
+
+  #administrator_login          = "mysqladminun"
+  #administrator_login_password = "H@Sh1CoR3!"
+
+  #sku_name   = "B_Gen5_2"
+  #storage_mb = 5120
+  #version    = "5.7"
+
+  #auto_grow_enabled                 = true
+  #backup_retention_days             = 7
+  #geo_redundant_backup_enabled      = false
+  #infrastructure_encryption_enabled = false
+  #public_network_access_enabled     = true
+  #ssl_enforcement_enabled           = true
+  #ssl_minimal_tls_version_enforced  = "TLS1_2"
+  #}
 resource "azurerm_network_interface_security_group_association" "example" {
   network_interface_id      = azurerm_network_interface.atividade2netinter.id
   network_security_group_id = azurerm_network_security_group.atividade2security.id
