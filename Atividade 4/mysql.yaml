@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+  namespace: mba-se
+spec:
+  containers:
+  - name: mysql
+    image: mysql:8.0    
+    ports:
+      - containerPort: 3306
+    env:
+        - name: "MYSQL_ROOT_PASSWORD"
+          value: root
+        - name: "MYSQL_DATABASE"
+          value: mysqldb
+        - name: "MYSQL_PASSWORD"
+          value: root
+    resources:
+      limits:
+        memory: 512Mi
+        cpu: "1"
+      requests:
+        memory: 256Mi
+        cpu: "0.2"
+        storage: 10Gi
